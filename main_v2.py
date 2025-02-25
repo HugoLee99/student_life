@@ -1127,7 +1127,7 @@ def main():
     input_dim = 64
     hidden_dim = 128
     output_dim = 2
-    num_epochs = 15  # 论文里要求是150轮
+    num_epochs = 30  # 论文里要求是150轮
     batch_size = 256  # 256个batch size
 
 

@@ -7,6 +7,10 @@ import torch.nn.functional as F
 from typing import List
 from torch_geometric.data import Data
 import random
+
+
+#监督损失：使用交叉熵损失（Cross Entropy Loss）计算有标签数据的损失。
+#一致性正则化损失：使用 KL 散度（KL Divergence）计算无标签数据的扰动前后输出之间的一致性损失。
 def local_update_cr(
     k: int,
     model: nn.Module,
@@ -57,9 +61,9 @@ def local_update_cr(
                 try:
                     # 确保图在CPU上
                     out = model(graph.x, graph.edge_index)  # 一张图的输出
-                    out = torch.mean(out, dim=0, keepdim=True)
-                    # out = torch.max(out, dim=0,keepdim=True)  # 最大池化保留显著特征
-                    batch_loss += criterion(out, label.unsqueeze(0))
+                    # out = torch.mean(out, dim=0, keepdim=True)
+                    out = torch.max(out, dim=0,keepdim=True)  # 最大池化保留显著特征
+                    batch_loss += criterion(out, label.unsqueeze(0)) #CROSS ENTROPY
                     valid_count += 1
                 except Exception as e:
                     print(f"处理训练图时出错: {str(e)}")
@@ -83,8 +87,8 @@ def local_update_cr(
                         try:
                             # 确保无标签图在CPU上
                             out = model(graph.x, graph.edge_index)
-                            out = torch.mean(out, dim=0, keepdim=True)
-                            # out = torch.max(out, dim=0,keepdim=True)  # 最大池化保留显著特征
+                            # out = torch.mean(out, dim=0, keepdim=True)
+                            out = torch.max(out, dim=0,keepdim=True)  # 最大池化保留显著特征
                             
                             # 扰动后的输出
                             perturbed_x = random_perturbation(graph.x)
@@ -118,6 +122,10 @@ def local_update_cr(
     
     return model
 
+
+# 监督损失：使用交叉熵损失（Cross Entropy Loss）计算有标签数据的损失。
+# 知识蒸馏损失：使用 KL 散度（KL Divergence）计算学徒模型和专家模型输出之间的差异。
+# 一致性正则化损失：使用 KL 散度（KL Divergence）计算无标签数据的扰动前后输出之间的一致性损失。
 def incremental_local_update_cr(
     k: int,
     apprentice_model: nn.Module,
@@ -151,13 +159,13 @@ def incremental_local_update_cr(
                 try:
                     # 学徒模型预测
                     out = apprentice_model(graph.x, graph.edge_index)
-                    out = torch.mean(out, dim=0, keepdim=True)
-                    # out = torch.max(out, dim=0,keepdim=True)  # 最大池化保留显著特征
+                    # out = torch.mean(out, dim=0, keepdim=True)
+                    out = torch.max(out, dim=0,keepdim=True)  # 最大池化保留显著特征
                     # 专家模型预测
                     with torch.no_grad():
                         expert_out = expert_model(graph.x, graph.edge_index)
-                        expert_out = torch.mean(expert_out, dim=0, keepdim=True)
-                        # out = torch.max(out, dim=0,keepdim=True)  # 最大池化保留显著特征
+                        # expert_out = torch.mean(expert_out, dim=0, keepdim=True)
+                        out = torch.max(out, dim=0,keepdim=True)  # 最大池化保留显著特征
                     # 计算监督损失和知识蒸馏损失
                     l_ce = (1 - alpha) * criterion(out, label.unsqueeze(0))
                     l_kd = alpha * F.kl_div(
@@ -181,13 +189,13 @@ def incremental_local_update_cr(
                     for graph in unlabeled_graphs[:batch_size]:
                         # 原始输出
                         out = apprentice_model(graph.x, graph.edge_index)
-                        out = torch.mean(out, dim=0, keepdim=True)
-                        # out = torch.max(out, dim=0)[0]  # 最大池化保留显著特征
+                        # out = torch.mean(out, dim=0, keepdim=True)
+                        out = torch.max(out, dim=0)[0]  # 最大池化保留显著特征
                         # 扰动后的输出
                         perturbed_x = random_perturbation(graph.x)
                         out_perturbed = apprentice_model(perturbed_x, graph.edge_index)
-                        out_perturbed = torch.mean(out_perturbed, dim=0, keepdim=True)
-                        # out_perturbed = torch.max(out_perturbed, dim=0,keepdim=True)  # 最大池化保留显著特征
+                        # out_perturbed = torch.mean(out_perturbed, dim=0, keepdim=True)
+                        out_perturbed = torch.max(out_perturbed, dim=0,keepdim=True)  # 最大池化保留显著特征
                         # print(f"out_perturbed shape: {out_perturbed.shape}")
                         # 计算一致性损失
                         cr_loss += F.kl_div(
@@ -245,7 +253,9 @@ def local_update_fedavg(
                 try:
                     # 确保图在CPU上
                     out = model(graph.x, graph.edge_index)  # 一张图的输出
-                    out = torch.mean(out, dim=0, keepdim=True)
+                    # out = torch.mean(out, dim=0, keepdim=True)
+                    out = torch.max(out, dim=0,keepdim=True)
+                    
                     batch_loss += criterion(out, label.unsqueeze(0))
                     valid_count += 1
                 except Exception as e:
@@ -270,7 +280,8 @@ def local_update_fedavg(
     
     return model
 
-
+# 监督损失：使用交叉熵损失（Cross Entropy Loss）计算有标签数据的损失。
+# 伪标签损失：使用交叉熵损失（Cross Entropy Loss）计算无标签数据生成的伪标签的损失。
 def local_update_fedsem_ft(
     k: int,
     model: nn.Module,
@@ -318,7 +329,8 @@ def local_update_fedsem_ft(
                 try:
                     # 确保图在CPU上
                     out = model(graph.x, graph.edge_index)  # 一张图的输出
-                    out = torch.mean(out, dim=0, keepdim=True)
+                    # out = torch.mean(out, dim=0, keepdim=True)
+                    out = torch.max(out, dim=0,keepdim=True) 
                     batch_loss += criterion(out, label.unsqueeze(0))
                     valid_count += 1
                 except Exception as e:
@@ -330,7 +342,8 @@ def local_update_fedsem_ft(
                 for graph in valid_unlabeled_graphs:
                     try:
                         out = model(graph.x, graph.edge_index)
-                        out = torch.mean(out, dim=0, keepdim=True)
+                        # out = torch.mean(out, dim=0, keepdim=True)
+                        out = torch.max(out, dim=0,keepdim=True) 
                         pseudo_label = torch.argmax(out, dim=1)
                         batch_loss += criterion(out, pseudo_label)
                         valid_count += 1
@@ -355,6 +368,8 @@ def local_update_fedsem_ft(
     
     return model
 
+# 监督损失：使用交叉熵损失（Cross Entropy Loss）计算有标签数据的损失。
+# 一致性正则化损失：使用 KL 散度（KL Divergence）计算无标签数据的扰动前后输出之间的一致性损失。
 def local_update_fedmatch_ft(
     k: int,
     model: nn.Module,
@@ -404,7 +419,8 @@ def local_update_fedmatch_ft(
                 try:
                     # 确保图在CPU上
                     out = model(graph.x, graph.edge_index)  # 一张图的输出
-                    out = torch.mean(out, dim=0, keepdim=True)
+                    # out = torch.mean(out, dim=0, keepdim=True)
+                    out = torch.max(out, dim=0,keepdim=True) 
                     batch_loss += criterion(out, label.unsqueeze(0))
                     valid_count += 1
                 except Exception as e:
@@ -429,12 +445,14 @@ def local_update_fedmatch_ft(
                         try:
                             # 确保无标签图在CPU上
                             out = model(graph.x, graph.edge_index)
-                            out = torch.mean(out, dim=0, keepdim=True)
+                            # out = torch.mean(out, dim=0, keepdim=True)
+                            out = torch.max(out, dim=0,keepdim=True) 
                             
                             # 扰动后的输出
                             perturbed_x = random_perturbation(graph.x)
                             out_perturbed = model(perturbed_x, graph.edge_index)
-                            out_perturbed = torch.mean(out_perturbed, dim=0, keepdim=True)
+                            # out_perturbed = torch.mean(out_perturbed, dim=0, keepdim=True)
+                            out_perturbed = torch.max(out_perturbed, dim=0,keepdim=True) 
                             
                             cr_loss += F.kl_div(
                                 F.log_softmax(out_perturbed, dim=1),
@@ -468,13 +486,9 @@ def local_update_fedmatch_ft(
     
     return model
 
-def random_perturbation(x):
-    # 简单的随机扰动示例
-    noise = torch.randn_like(x) * 0.1
-    return x + noise
 
-
-
+# 监督损失：使用交叉熵损失（Cross Entropy Loss）计算有标签数据的损失。
+# 知识蒸馏损失：使用 KL 散度（KL Divergence）计算新模型和旧模型输出之间的差异。
 def local_update_flwf(
     k: int,
     model: nn.Module,
@@ -514,7 +528,8 @@ def local_update_flwf(
                 try:
                     # 确保图在CPU上
                     out = model(graph.x, graph.edge_index)  # 一张图的输出
-                    out = torch.mean(out, dim=0, keepdim=True)
+                    # out = torch.mean(out, dim=0, keepdim=True)
+                    out = torch.max(out, dim=0,keepdim=True) 
                     batch_loss += criterion(out, label.unsqueeze(0))
                     valid_count += 1
                 except Exception as e:
@@ -533,9 +548,11 @@ def local_update_flwf(
                         graph.edge_index = torch.stack([self_loops, self_loops], dim=0)
                     try:
                         old_out = old_model(graph.x, graph.edge_index)
-                        old_out = torch.mean(old_out, dim=0, keepdim=True)
+                        # old_out = torch.mean(old_out, dim=0, keepdim=True)
+                        old_out = torch.max(old_out, dim=0,keepdim=True) 
                         new_out = model(graph.x, graph.edge_index)
-                        new_out = torch.mean(new_out, dim=0, keepdim=True)
+                        # new_out = torch.mean(new_out, dim=0, keepdim=True)
+                        new_out = torch.max(new_out, dim=0,keepdim=True)
                         distill_loss += F.kl_div(
                             F.log_softmax(new_out, dim=1),
                             F.softmax(old_out, dim=1),
@@ -560,3 +577,9 @@ def local_update_flwf(
                 print(f"Client {k}, Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}")
     
     return model
+
+def random_perturbation(x):
+    # 简单的随机扰动示例
+    noise = torch.randn_like(x) * 0.1
+    return x + noise
+
