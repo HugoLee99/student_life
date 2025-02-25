@@ -1149,7 +1149,7 @@ def main():
     
     # 训练专家模型（前40个通信轮次）
     num_rounds_expert = 10
-    num_clients = 11 # 60个用户
+    num_clients = 60 # 60个用户
     client_perserver = 5  # 每个服务器5个用户
   
     
