@@ -1132,7 +1132,7 @@ def main():
 
 
     learning_rate = 1e-5 # 1e-5
-    lambda_cr = 1e-4 # 1e-5 一致性加大看看会如何
+    lambda_cr = 1e-5 # 1e-5 一致性加大看看会如何
     alpha = 0.5
     
     
@@ -1149,7 +1149,7 @@ def main():
     
     # 训练专家模型（前40个通信轮次）
     num_rounds_expert = 10
-    num_clients = 60 # 60个用户
+    num_clients = 11 # 60个用户
     client_perserver = 5  # 每个服务器5个用户
   
     
@@ -1157,16 +1157,7 @@ def main():
      # 准备数据
     expert_batches, expert_vals,apprentice_batches, apprentice_vals,server_nums = prepare_data(client_perserver,num_clients) 
     clients=range(server_nums)   # 确保clients的索引在有效范围内
-    # print("expert_batches:", len(expert_batches))
-    # print("expert_vals:", len(expert_vals))
-
-    # print("apprentice_batches:", len(apprentice_batches))
-    # print("apprentice_vals:", len(apprentice_vals))
-    # sys.exit()
-    # 初始化模型
-
-    # 进行增量更新（41到120个通信轮次）
-    # num_rounds_incremental = 80  # 从41到120共80轮  
+    
    
     communication_round = 10 # 8 batches * 10 = 80 只给我们的模型用
     expert_model, expert_f1_scores = federated_learning(
@@ -1416,26 +1407,6 @@ def main():
     )
     
  
-    try:
-        import pandas as pd
-        combined_df = pd.DataFrame({
-            'Round': range(1, len(expert_f1_scores) + 1),
-            'FedMH': expert_f1_scores,
-            'FedMH_incremental': apprentice_f1_scores,  # 增量更新的F1分数
-            'FedAvg': fedavg_f1_scores,
-            'FedAvg_incremental': fedavg_incremental_f1_scores,
-            'FedSem_FT': fedsem_ft_f1_scores,
-            'FedSem_FT_incremental': fedsem_ft_incremental_f1_scores,
-            'FedMatch_FT': fedmatch_ft_f1_scores,
-            'FedMatch_FT_incremental': fedmatch_ft_incremental_f1_scores,
-            'FLwF': flwf_f1_scores,
-            'FLwF_incremental': flwf_incremental_f1_scores,
-            
-        })
-        combined_df.to_csv('f1_score_comparison.csv', index=False)
-        print("已生成完整的F1分数比较数据文件")
-    except Exception as e:
-        print(f"合并F1分数时出错: {str(e)}")
 
 if __name__ == "__main__":
     main()

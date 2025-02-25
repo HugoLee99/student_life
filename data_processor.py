@@ -9,6 +9,8 @@ import os
 from location_cluster import LocationCluster
 from datetime import datetime
 import sys
+# from NodeSketch import NodeSketch
+from NodeSketch2 import NodeSketch
 class DataProcessor:
     def __init__(self, base_path: str, user_id: str):
         self.base_path = base_path
@@ -17,7 +19,9 @@ class DataProcessor:
         self.location_cluster = LocationCluster(
             memory_file=f'processed_data\location_memory_u{user_id}.pkl'
         )
+        self.node_sketch = NodeSketch()  # 初始化 NodeSketch 实例
         
+    # 转化数据为日期时间格式，删除无效的数据，如缺少经纬度，时间戳等等
     def load_sensor_data(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """加载传感器数据"""
         print("开始加载传感器数据...")
@@ -97,6 +101,7 @@ class DataProcessor:
         
         return df_gps, df_activity, df_bluetooth
     
+    #对 GPS 坐标进行聚类，并将聚类结果添加为图的节点。添加连续访问位置之间的边。
     def create_location_graph(self, df_gps_day: pd.DataFrame, eps=0.001, min_samples=3) -> nx.Graph:
         """创建位置图"""
         # 使用LocationCluster进行聚类
@@ -127,7 +132,7 @@ class DataProcessor:
                 prev_cluster = cluster
         
         return G
-    
+    # 添加活动子图。
     def add_activity_subgraph(self, G: nx.Graph, df_activity_day: pd.DataFrame) -> nx.Graph:
         """添加活动子图"""
         activities = df_activity_day['activity_inference'].unique()
@@ -204,12 +209,12 @@ class DataProcessor:
                 (df_bluetooth_day['time'] <= end_time)
             ]
             
-            # 为每个聚类创建子图 （这个不需要了吧cluster 直接当location 了，不需要再给里面地点细化地点了）
+           
             if not gps_window.empty:
                 # 创建位置子图，只包含当前聚类的节点
                 G_location = nx.Graph()
-                mask = clusters == cluster
-                center = coordinates[mask].mean(axis=0)
+                mask = clusters == cluster #是一个布尔数组，用于标识当前聚类的节点。 mask = np.array([True, False, True, False, False, False, True])
+                center = coordinates[mask].mean(axis=0) # 计算中间坐标
                 G_location.add_node(f'L{cluster}', 
                                   type='location',
                                   latitude=center[0],
@@ -229,52 +234,76 @@ class DataProcessor:
                 dynamic_graphs['bluetooth'][cluster] = G_bluetooth
         
         return dynamic_graphs
-    
+    # 将 NetworkX 图转换为 PyTorch Geometric 数据格式。
+    # 创建节点特征和边索引，并转换为 PyTorch 张量。
     def convert_to_pytorch_geometric(self, G: nx.Graph) -> Data:
         """将NetworkX图转换为PyTorch Geometric数据格式"""
+        # 检查 G 是否为空
+        if G is None or len(G.nodes()) == 0:
+            print("Graph G is empty or None.")
+            raise ValueError("Graph G is empty or None.")
+        
+        # 训练 Node2Vec 模型
+        self.node_sketch.fit(G)
+        
         # 创建节点特征
         node_features = []
         node_types = []
         nodes_list = list(G.nodes())
         
         for node in nodes_list:
+            # 使用 Node Sketch 嵌入生成节点特征
+            embedding = self.node_sketch.get_embedding(node)
+            node_features.append(embedding)
+            
             if node.startswith('L'):  # 位置节点
-                coords = np.array([G.nodes[node]['latitude'], G.nodes[node]['longitude']])
-                # 修改填充维度以匹配模型输入维度
-                node_features.append(np.pad(coords, (0, 62)))  # 填充到64维
                 node_types.append(0)
             elif node.startswith('A'):  # 活动节点
-                feature = np.zeros(64)  # 修改为64维
-                feature[int(node[1:])] = 1  # one-hot编码
-                node_features.append(feature)
                 node_types.append(1)
             elif node.startswith('B'):  # 蓝牙节点
-                feature = np.random.normal(0, 0.1, 64)  # 修改为64维
-                node_features.append(feature)
                 node_types.append(2)
         
-        # 创建边索引
+        # 创建边索引和边权重
         edge_index = []
+        edge_weight = []
         for edge in G.edges():
             # 获取节点的索引
             source = list(G.nodes()).index(edge[0])
             target = list(G.nodes()).index(edge[1])
             edge_index.append([source, target])
             edge_index.append([target, source])  # 无向图需要添加反向边
+            # 添加边的权重
+            weight = G.edges[edge].get('weight', 1.0)
+            edge_weight.append(weight)
+            edge_weight.append(weight)  # 无向图需要添加反向边的权重
         
         # 转换为PyTorch张量
         x = torch.FloatTensor(node_features)
         edge_index = torch.LongTensor(edge_index).t()
+        edge_weight = torch.FloatTensor(edge_weight)
         node_types = torch.LongTensor(node_types)
         
-        return Data(x=x, edge_index=edge_index, node_type=node_types) 
-    
+        return Data(x=x, edge_index=edge_index, edge_weight=edge_weight, node_type=node_types)   
     def convert_to_pytorch_geometric_temporal(self, static_graph: nx.Graph, 
                                             dynamic_graphs: Dict[str, Dict]) -> Tuple[Data, Dict[str, List[Data]]]:
         """将静态图和动态图转换为PyTorch Geometric时序数据格式"""
         # 转换静态图
         static_data = self.convert_to_pytorch_geometric(static_graph)
         
+        #        dynamic_graphs = {
+        #     'location': {
+        #         0: nx.Graph([('L0', {'type': 'location', 'latitude': 34.0522, 'longitude': -118.2437})]),
+        #         1: nx.Graph([('L1', {'type': 'location', 'latitude': 36.1699, 'longitude': -115.1398})])
+        #     },
+        #     'activity': {
+        #         0: nx.Graph([('A0', {'type': 'activity'})]),
+        #         1: nx.Graph([('A1', {'type': 'activity'})])
+        #     },
+        #     'bluetooth': {
+        #         0: nx.Graph([('B0', {'type': 'bluetooth'})]),
+        #         1: nx.Graph([('B1', {'type': 'bluetooth'})])
+        #     }
+        # }
         # 转换动态图
         dynamic_data = {
             'location': [],
@@ -283,7 +312,6 @@ class DataProcessor:
         }
         
         # 获取所有时间戳并排序
-        
         timestamps = sorted(list(dynamic_graphs['location'].keys()))
         # print('这个timestamps 真的有吗',list(dynamic_graphs['activity']),list(dynamic_graphs['location']))
 
@@ -297,7 +325,7 @@ class DataProcessor:
                     )
                     dynamic_data[channel].append(graph_data)
                     #graph_data变成这种 Data(x=x, edge_index=edge_index, node_type=node_types) 
-        
+                    # PyTorch Geometric 的 Data 对象 
         return static_data, dynamic_data
     
     def build_daily_graphs(self) -> Dict[str, Tuple[nx.Graph, Dict[str, Dict[str, nx.Graph]]]]:
@@ -333,7 +361,7 @@ class DataProcessor:
             static_graph = self.create_location_graph(df_gps_day)
             static_graph = self.add_activity_subgraph(static_graph, df_activity_day)
             static_graph = self.add_bluetooth_subgraph(static_graph, df_bluetooth_day)
-            
+            #static_graph 是全部节点放在一张图
             # 创建动态图（按GPS聚类划分）
             dynamic_graphs = self.create_multi_channel_graph(
                 static_graph, df_gps_day, df_activity_day, df_bluetooth_day
@@ -363,6 +391,7 @@ class DataProcessor:
         print(f"总共构建了 {len(daily_graphs)} 天的图")
         return daily_graphs
     
+    # 作废了不知到为什么会读取出错
     def load_existing_graphs(self) -> Dict[str, Tuple[nx.Graph, Dict[str, Dict[str, nx.Graph]]]]:
         """加载已存在的图"""
         existing_graphs = {}
