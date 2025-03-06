@@ -142,40 +142,38 @@ def prepare_data(client_pergroup, client_nums):
         print(f"开始转换用户 {user_id} 的数据为PyTorch Geometric格式...")
 
         for date, (static_graph, dynamic_graphs) in daily_graphs.items():
-            try:
-                # 确保这一天有压力水平数据
-                date_obj = datetime.strptime(date, '%Y-%m-%d').date()
+        
+            # 确保这一天有压力水平数据
+            date_obj = datetime.strptime(date, '%Y-%m-%d').date()
+            
+
+            # print(f"处理 {date} 的图数据")
+            static_data, dynamic_data = processor.convert_to_pytorch_geometric_temporal(
+                static_graph, dynamic_graphs
+            )
+
+            # 检查并修复空图
+            if not hasattr(static_data, 'edge_index') or static_data.edge_index.numel() == 0:
+                print(f"警告: {date} 的静态图没有边，添加自环")
+                num_nodes = static_data.x.size(0)
+                self_loops = torch.arange(num_nodes, dtype=torch.long)
+                static_data.edge_index = torch.stack([self_loops, self_loops], dim=0)
+
+            # 添加压力水平作为标签
+            if date_obj in stress_dict:
+                stress_level = stress_dict[date_obj]
+                static_data.y = torch.tensor(stress_level, dtype=torch.long)
                 
-
-                # print(f"处理 {date} 的图数据")
-                static_data, dynamic_data = processor.convert_to_pytorch_geometric_temporal(
-                    static_graph, dynamic_graphs
-                )
-
-                # 检查并修复空图
-                if not hasattr(static_data, 'edge_index') or static_data.edge_index.numel() == 0:
-                    print(f"警告: {date} 的静态图没有边，添加自环")
-                    num_nodes = static_data.x.size(0)
-                    self_loops = torch.arange(num_nodes, dtype=torch.long)
-                    static_data.edge_index = torch.stack([self_loops, self_loops], dim=0)
-
-                # 添加压力水平作为标签
-                if date_obj in stress_dict:
-                    stress_level = stress_dict[date_obj]
-                    static_data.y = torch.tensor(stress_level, dtype=torch.long)
-                    
-                    processed_data.append({
-                        'static': static_data,
-                        'unlabeled': None
-                    })
-                else:
-                    prepare_data.append({
-                        'static': None,
-                        'unlabeled': static_data
-                    })
-            except Exception as e:
-                print(f"处理 {date} 的数据时出错: {str(e)}")
-                continue
+                processed_data.append({
+                    'static': static_data,
+                    'unlabeled': None
+                })
+            else:
+                processed_data.append({
+                    'static': None,
+                    'unlabeled': static_data
+                })
+            
 
         count += 1
         user_index += 1  # 成功处理用户数据后递增计数器
@@ -211,7 +209,7 @@ def output_data(processed_data, server_id, all_expert_data, all_expert_batches, 
     expert_client_data = (
         [data['static'] for data in expert_data if data['static'] is not None],
         [data['unlabeled'] for data in expert_data if data['unlabeled'] is not None],
-        torch.cat([torch.tensor([data['static'].y]) for data in expert_data])
+        torch.cat([torch.tensor([data['static'].y]) for data in expert_data if data['static'] is not None])
     )
     all_expert_data.append(expert_client_data)  # 一个用户的专家数据 (静态图，动态图，标签) 有多少个用户就有多少个三元组
 
@@ -219,7 +217,7 @@ def output_data(processed_data, server_id, all_expert_data, all_expert_batches, 
     apprentice_data_container = (
         [data['static'] for data in apprentice_data if data['static'] is not None],
         [data['unlabeled'] for data in apprentice_data if data['unlabeled'] is not None],
-        torch.cat([torch.tensor([data['static'].y]) for data in apprentice_data])
+        torch.cat([torch.tensor([data['static'].y]) for data in apprentice_data if data['static'] is not None])
     )
     all_apprentice_data.append(apprentice_data_container)  # 一个用户的学徒数据 (静态图，动态图，标签) 有多少个用户就有多少个三元组
 
@@ -275,10 +273,17 @@ def divide_batches(server_id, origin_data, result, num_batches):
 
         if batch_data:
             # 三元组(有标签静态图, 无标签图, 标签)
+            di_san = torch.tensor([])
+            for data in batch_data:
+                if data['static'] is not None:
+                    di_san = torch.tensor([data['static'].y])
+                    if len(di_san) != 0:
+                        di_san = torch.cat([di_san])
+                        
             batch_client_data = (
                 [data['static'] for data in batch_data if data['static'] is not None],
                 [data['unlabeled'] for data in batch_data if data['unlabeled'] is not None],
-                torch.cat([torch.tensor([data['static'].y]) for data in batch_data])
+                di_san
             )
             user_expert_batches.append(batch_client_data)
 

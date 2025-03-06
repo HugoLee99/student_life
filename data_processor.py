@@ -9,6 +9,8 @@ import os
 from location_cluster import LocationCluster
 from datetime import datetime
 import sys
+import matplotlib.pyplot as plt
+import random
 # from NodeSketch import NodeSketch
 from NodeSketch2 import NodeSketch
 class DataProcessor:
@@ -101,8 +103,34 @@ class DataProcessor:
         
         return df_gps, df_activity, df_bluetooth
     
+    def visualize_location_graph(self, G: nx.Graph,save_path):
+        save_path = 'visualize/'+ save_path
+        """可视化位置图"""
+        pos = {}
+        labels = {}
+        default_position = lambda: (random.uniform(-180, 180), random.uniform(-90, 90))  # 随机默认位置生成器
+
+        for node, data in G.nodes(data=True):
+            longitude, latitude = data.get('longitude'), data.get('latitude')
+            if longitude is None or latitude is None:
+                longitude, latitude = default_position()
+            pos[node] = (longitude, latitude)
+            labels[node] = f"{node}\nVisits: {data.get('visits', 'N/A')}"
+        
+        plt.figure(figsize=(10, 8))
+        nx.draw(G, pos, with_labels=True, node_size=500, node_color='skyblue', font_size=10, font_weight='bold')
+        nx.draw_networkx_labels(G, pos, labels, font_size=8)
+        plt.title("Location Graph")
+        plt.xlabel("Longitude")
+        plt.ylabel("Latitude")
+        if save_path:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            plt.savefig(save_path)
+            plt.close()
+        
     #对 GPS 坐标进行聚类，并将聚类结果添加为图的节点。添加连续访问位置之间的边。
-    def create_location_graph(self, df_gps_day: pd.DataFrame, eps=0.001, min_samples=3) -> nx.Graph:
+    # hiversine 100米 半径
+    def create_location_graph(self, df_gps_day: pd.DataFrame, eps=100, min_samples=3) -> nx.Graph:
         """创建位置图"""
         # 使用LocationCluster进行聚类
         coordinates = df_gps_day[['latitude', 'longitude']].values
@@ -110,7 +138,7 @@ class DataProcessor:
         
         G = nx.Graph()
         
-        # 添加位置节点
+        # 添加位置节点 
         unique_clusters = np.unique(clusters)
         for cluster in unique_clusters:
             if cluster != -1:  # 排除噪声点
@@ -121,7 +149,7 @@ class DataProcessor:
                           type='location',
                           latitude=center[0],
                           longitude=center[1],
-                          visits=location_info['visits'] if location_info else 1)
+                          visits=location_info['visits'] if location_info else 1)#visits是次数
         
         # 添加连续访问位置之间的边
         prev_cluster = None
@@ -132,18 +160,24 @@ class DataProcessor:
                 prev_cluster = cluster
         
         return G
-    # 添加活动子图。
+    # 添加活动子图。 考虑能不能加个权重？？
     def add_activity_subgraph(self, G: nx.Graph, df_activity_day: pd.DataFrame) -> nx.Graph:
         """添加活动子图"""
         activities = df_activity_day['activity_inference'].unique()
         for activity in activities:
             G.add_node(f'A{activity}', type='activity')
         
-        # 添加连续活动之间的边
-        activity_sequence = df_activity_day['activity_inference'].values
-        for i in range(len(activity_sequence)-1):
-            G.add_edge(f'A{activity_sequence[i]}', f'A{activity_sequence[i+1]}')
-        
+        # 添加相邻时间段之间的边
+        activity_sequence = df_activity_day[['time', 'activity_inference']].values
+        for i in range(len(activity_sequence) - 1):
+            current_activity = activity_sequence[i][1]
+            next_activity = activity_sequence[i + 1][1]
+            current_time = activity_sequence[i][0]
+            next_time = activity_sequence[i + 1][0]
+            # 仅在相邻时间段之间添加边
+            if next_time > current_time:
+                G.add_edge(f'A{current_activity}', f'A{next_activity}')
+    
         return G
     
     def add_bluetooth_subgraph(self, G: nx.Graph, df_bluetooth_day: pd.DataFrame) -> nx.Graph:
@@ -164,7 +198,8 @@ class DataProcessor:
     def create_multi_channel_graph(self, G: nx.Graph, 
                                  df_gps_day: pd.DataFrame, 
                                  df_activity_day: pd.DataFrame, 
-                                 df_bluetooth_day: pd.DataFrame) -> Dict[str, nx.Graph]:
+                                 df_bluetooth_day: pd.DataFrame,
+                                 date) -> Dict[str, nx.Graph]:
         """创建多通道动态图，按GPS聚类划分"""
         # 使用DBSCAN聚类GPS坐标
         coordinates = df_gps_day[['latitude', 'longitude']].values
@@ -177,11 +212,15 @@ class DataProcessor:
         dynamic_graphs = {
             'location': {},
             'activity': {},
-            'bluetooth': {}
+            'bluetooth': {},
+            't_location': {}
         }
         
         # 对每个有效的聚类创建子图
         unique_clusters = np.unique(clusters)
+        G_location = nx.Graph()
+        prev_cluster = None
+        prev_end_time = None
         for cluster in unique_clusters:
             if cluster == -1:  # 跳过噪声点
                 continue
@@ -212,27 +251,47 @@ class DataProcessor:
            
             if not gps_window.empty:
                 # 创建位置子图，只包含当前聚类的节点
-                G_location = nx.Graph()
+                local_Node = nx.Graph()
                 mask = clusters == cluster #是一个布尔数组，用于标识当前聚类的节点。 mask = np.array([True, False, True, False, False, False, True])
                 center = coordinates[mask].mean(axis=0) # 计算中间坐标
-                G_location.add_node(f'L{cluster}', 
+                local_Node.add_node(f'L{cluster}', 
                                   type='location',
                                   latitude=center[0],
                                   longitude=center[1])
-                dynamic_graphs['location'][cluster] = G_location
+                # 这个是记录为一天的整张位置图
+                G_location.add_node(f'L{cluster}',
+                                  type='location',
+                                  latitude=center[0],
+                                  longitude=center[1])
+                
+                dynamic_graphs['location'][cluster] = local_Node
+                # self.visualize_location_graph(local_Node, os.path.join('location_', self.user_id, f'{date}_{cluster}.png'))
+                
             
             if not activity_window.empty:
                 # 创建活动子图
                 G_activity = nx.Graph()
                 self.add_activity_subgraph(G_activity, activity_window)
                 dynamic_graphs['activity'][cluster] = G_activity
+                # self.visualize_location_graph(G_activity, os.path.join('activity_', self.user_id, f'{date}_{cluster}.png'))
             
             if not bluetooth_window.empty:
                 # 创建蓝牙子图
                 G_bluetooth = nx.Graph()
                 self.add_bluetooth_subgraph(G_bluetooth, bluetooth_window)
                 dynamic_graphs['bluetooth'][cluster] = G_bluetooth
-        
+                # self.visualize_location_graph(G_bluetooth, os.path.join('bluetooth_', self.user_id, f'{date}_{cluster}.png'))
+             # 添加相邻聚类之间的边
+            if prev_cluster is not None and prev_end_time is not None:
+                # print(f'当前时间{start_time},上一个时间{prev_end_time}')
+                if start_time > prev_end_time:
+                    # print(f"符合添加边: L{prev_cluster} -> L{cluster}")
+                    G_location.add_edge(f'L{prev_cluster}', f'L{cluster}')
+            
+            prev_cluster = cluster
+            prev_end_time = end_time
+            dynamic_graphs['t_location']['-1'] = G_location
+            # self.visualize_location_graph(G_location, os.path.join('location_', self.user_id, f'{date}.png'))
         return dynamic_graphs
     # 将 NetworkX 图转换为 PyTorch Geometric 数据格式。
     # 创建节点特征和边索引，并转换为 PyTorch 张量。
@@ -306,26 +365,27 @@ class DataProcessor:
         # }
         # 转换动态图
         dynamic_data = {
-            'location': [],
-            'activity': [],
-            'bluetooth': []
+            'location': {},
+            'activity': {},
+            'bluetooth': {}
         }
         
         # 获取所有时间戳并排序
-        timestamps = sorted(list(dynamic_graphs['location'].keys()))
+        clusterNums = sorted(list(dynamic_graphs['location'].keys()))
         # print('这个timestamps 真的有吗',list(dynamic_graphs['activity']),list(dynamic_graphs['location']))
 
         # sys.exit()
-        for timestamp in timestamps:
+        for clusterNum in clusterNums:
             # 处理每个通道的动态图
             for channel in ['location', 'activity', 'bluetooth']:
-                if timestamp in dynamic_graphs[channel]:
+                if clusterNum in dynamic_graphs[channel]:
                     graph_data = self.convert_to_pytorch_geometric(
-                        dynamic_graphs[channel][timestamp]
+                        dynamic_graphs[channel][clusterNum]
                     )
-                    dynamic_data[channel].append(graph_data)
+                    dynamic_data[channel][clusterNum]=graph_data
                     #graph_data变成这种 Data(x=x, edge_index=edge_index, node_type=node_types) 
                     # PyTorch Geometric 的 Data 对象 
+                    # dynamic data [channel][cluster] = Data(x=x, edge_index=edge_index, node_type=node_types)
         return static_data, dynamic_data
     
     def build_daily_graphs(self) -> Dict[str, Tuple[nx.Graph, Dict[str, Dict[str, nx.Graph]]]]:
@@ -359,12 +419,15 @@ class DataProcessor:
             
             # 创建静态图（基础结构）
             static_graph = self.create_location_graph(df_gps_day)
+            # self.visualize_location_graph(static_graph)
             static_graph = self.add_activity_subgraph(static_graph, df_activity_day)
+            # self.visualize_location_graph(static_graph,'static_graph.png')
             static_graph = self.add_bluetooth_subgraph(static_graph, df_bluetooth_day)
-            #static_graph 是全部节点放在一张图
+            #static_graph 是把一天全部节点放在一张图
+
             # 创建动态图（按GPS聚类划分）
             dynamic_graphs = self.create_multi_channel_graph(
-                static_graph, df_gps_day, df_activity_day, df_bluetooth_day
+                static_graph, df_gps_day, df_activity_day, df_bluetooth_day,date
             )
             
             # 保存图

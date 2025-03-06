@@ -5,7 +5,7 @@ import pickle
 import os
 
 class LocationCluster:
-    def __init__(self, eps=0.001, min_samples=3, memory_file='location_memory.pkl'):
+    def __init__(self, eps=100, min_samples=3, memory_file='location_memory.pkl'):
         self.eps = eps
         self.min_samples = min_samples
         self.memory_file = memory_file
@@ -28,18 +28,31 @@ class LocationCluster:
                 'memory': self.location_memory,
                 'next_id': self.next_cluster_id
             }, f)
+    def haversine_distance(self, coord1: np.ndarray, coord2: np.ndarray) -> float:
+        """计算两个经纬度坐标之间的哈弗赛因距离"""
+        R = 6371  # 地球半径，单位为公里
+        lat1, lon1 = np.radians(coord1)
+        lat2, lon2 = np.radians(coord2)
+        
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        
+        a = np.sin(dlat / 2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2)**2
+        c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+        
+        distance = R * c
+        return distance
     
     def find_matching_location(self, center: np.ndarray) -> int:
         """查找匹配的已知位置"""
         for loc_id, loc_info in self.location_memory.items():
             stored_center = loc_info['center']
-            # 计算与已存储位置的距离
-            distance = np.sqrt(np.sum((center - stored_center) ** 2))
+            # 计算与已存储位置的哈弗赛因距离
+            distance = self.haversine_distance(center, stored_center)
             # 如果距离小于eps，认为是同一个位置
             if distance < self.eps:
                 return loc_id
         return -1
-    
     def fit_predict(self, coordinates: np.ndarray) -> np.ndarray:
         """对坐标进行聚类，保持位置标签的一致性"""
         # 首先使用DBSCAN进行基础聚类
