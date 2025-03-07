@@ -15,7 +15,7 @@ class NodeSketch:
     def fit(self, G: nx.Graph):
         """训练 Node2Vec 模型"""
         node2vec = Node2Vec(G, dimensions=self.embedding_dim, walk_length=self.walk_length,
-                            num_walks=self.num_walks, p=self.p, q=self.q, workers=4)
+                            num_walks=self.num_walks, p=self.p, q=self.q, workers=2)
         self.model = node2vec.fit(window=10, min_count=1, batch_words=4)
 
     def get_embedding(self, node: str) -> np.ndarray:

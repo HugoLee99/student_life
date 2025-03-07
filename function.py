@@ -18,7 +18,7 @@ def calculate_f1_score(predictions, labels):
 
 def save_f1(f1_scores, model_name, model_type):
     column_name = f'{model_type}_{model_name}'
-    file_path = f'output/f1_scores_{model_type}.csv'
+    file_path = f'output/f1_scores_{model_type}_new.csv'
     
     # 检查文件是否存在
     if os.path.exists(file_path):
@@ -72,6 +72,8 @@ def increment_data_transform(time_step, train_data,valid_data):
     
     
 def save_all_batches_f1(f1_scores, model_name, model_type):
+
+
     column_name = f'{model_type}_{model_name}'
     file_path = f'output/CatstroForget_Compare_{model_type}.csv'
     # 检查文件是否存在
@@ -98,6 +100,7 @@ def save_all_batches_f1(f1_scores, model_name, model_type):
         # 创建一个空的 CSV 文件
         df.to_csv(file_path, index=False)
         print(f"没有 F1 分数，已创建空文件 {file_path}")   
+#加y标签和负责划分数据的调用 主函数
 def prepare_data(client_pergroup, client_nums):
     # 处理label 的
     print("开始准备数据...")
@@ -141,15 +144,19 @@ def prepare_data(client_pergroup, client_nums):
         # 转换为PyTorch Geometric格式
         print(f"开始转换用户 {user_id} 的数据为PyTorch Geometric格式...")
 
-        for date, (static_graph, dynamic_graphs) in daily_graphs.items():
+        for date, (full_graph, location_graph) in daily_graphs.items():
         
             # 确保这一天有压力水平数据
             date_obj = datetime.strptime(date, '%Y-%m-%d').date()
             
 
             # print(f"处理 {date} 的图数据")
-            static_data, dynamic_data = processor.convert_to_pytorch_geometric_temporal(
-                static_graph, dynamic_graphs
+            if len(full_graph.nodes()) == 0 or len(location_graph.nodes()) == 0:
+                print(f"警告: {date} 的图数据为空，跳过")
+                continue
+
+            static_data, full_graph = processor.convert_to_pytorch_geometric_temporal(
+                full_graph, location_graph
             )
 
             # 检查并修复空图

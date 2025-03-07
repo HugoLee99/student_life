@@ -10,6 +10,7 @@ from torch_geometric.data import Data
 import random
 from FL_hub import local_update_cr, incremental_local_update_cr, local_update_flwf ,local_update_fedavg, local_update_fedsem_ft, local_update_fedmatch_ft
 from function import calculate_f1_score,save_f1,average_weights,increment_data_transform,save_all_batches_f1,prepare_data
+
 random.seed(42)
 torch.manual_seed(42)
 def random_perturbation(x: torch.Tensor) -> torch.Tensor:
@@ -1149,7 +1150,7 @@ def main():
     
     # 训练专家模型（前40个通信轮次）
     num_rounds_expert = 10
-    num_clients = 11 # 60个用户
+    num_clients = 60 # 60个用户
     client_perserver = 5  # 每个服务器5个用户
   
     

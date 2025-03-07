@@ -27,68 +27,80 @@ class DataProcessor:
     def load_sensor_data(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """加载传感器数据"""
         print("开始加载传感器数据...")
-
+        
         # 加载GPS数据
         gps_path = os.path.join(self.base_path, f'sensing/gps/gps_u{self.user_id}.csv')
-
+        # print(f"尝试加载GPS数据: {gps_path}")
         if not os.path.exists(gps_path):
             raise FileNotFoundError(f"GPS数据文件不存在: {gps_path}")
-
-        # 读取 GPS 数据
+        
+        # 读取GPS数据
         df_gps = pd.read_csv(gps_path, low_memory=False)
-        df_gps = df_gps.dropna(subset=['latitude', 'longitude'])
-
+        # print("GPS数据列名:", df_gps.columns.tolist())
+        # print("GPS数据前几行:")
+        # print(df_gps.head())
+        # print(f"GPS数据加载成功，原始数据量: {len(df_gps)}")
+        
         # 重命名索引列为时间戳
         df_gps = df_gps.reset_index()
         df_gps = df_gps.rename(columns={'index': 'timestamp'})
-
+        
         # 转换时间戳
         try:
             df_gps['time'] = pd.to_datetime(df_gps['timestamp'], unit='s')
         except:
             print("警告：时间戳转换失败，尝试其他方法")
             df_gps['time'] = pd.to_datetime(df_gps.index, unit='s')
-
+        
         # 删除无效的GPS记录
         df_gps = df_gps.dropna(subset=['latitude', 'longitude'])
         df_gps['date'] = df_gps['time'].dt.date
-
+        
         print(f"GPS数据清理后数据量: {len(df_gps)}")
-
+        # if len(df_gps) > 0:
+        #     print("清理后的GPS数据日期范围:", df_gps['date'].min(), "到", df_gps['date'].max())
+        #     print("GPS坐标范围:")
+        #     print(f"纬度: {df_gps['latitude'].min():.6f} 到 {df_gps['latitude'].max():.6f}")
+        #     print(f"经度: {df_gps['longitude'].min():.6f} 到 {df_gps['longitude'].max():.6f}")
+        
         # 加载活动数据
         activity_path = os.path.join(self.base_path, f'sensing/activity/activity_u{self.user_id}.csv')
         print(f"尝试加载活动数据: {activity_path}")
         if not os.path.exists(activity_path):
             raise FileNotFoundError(f"活动数据文件不存在: {activity_path}")
-
-        # 读取活动数据
         df_activity = pd.read_csv(activity_path, 
-                                  names=['timestamp', 'activity_inference'],
-                                  dtype={'timestamp': str, 'activity_inference': str},
-                                  low_memory=False)
+                                 names=['timestamp', 'activity_inference'],
+                                 dtype={'timestamp': str, 'activity_inference': str},
+                                 low_memory=False)
+        # print(f"活动数据加载成功，原始数据量: {len(df_activity)}")
+        
+        # 转换活动数据时间戳
         df_activity['timestamp'] = pd.to_numeric(df_activity['timestamp'], errors='coerce')
         df_activity = df_activity.dropna(subset=['timestamp'])
         df_activity['time'] = pd.to_datetime(df_activity['timestamp'], unit='s')
-        print(f"活动数据清理后数据量: {len(df_activity)}")
-
+        # print(f"活动数据清理后数据量: {len(df_activity)}")
+        
         # 加载蓝牙数据
         bluetooth_path = os.path.join(self.base_path, f'sensing/bluetooth/bt_u{self.user_id}.csv')
-        print(f"尝试加载蓝牙数据: {bluetooth_path}")
+        # print(f"尝试加载蓝牙数据: {bluetooth_path}")
         if not os.path.exists(bluetooth_path):
             raise FileNotFoundError(f"蓝牙数据文件不存在: {bluetooth_path}")
-
-        # 读取蓝牙数据
         df_bluetooth = pd.read_csv(bluetooth_path, 
-                                   names=['time', 'MAC', 'class_id', 'level'],
-                                   dtype={'time': str, 'MAC': str, 'class_id': str, 'level': str},
-                                   low_memory=False)
+                                  names=['time', 'MAC', 'class_id', 'level'],
+                                  dtype={'time': str, 'MAC': str, 'class_id': str, 'level': str},
+                                  low_memory=False)
+        # print(f"蓝牙数据加载成功，原始数据量: {len(df_bluetooth)}")
+        
+        # 转换蓝牙数据时间戳
         df_bluetooth['time'] = pd.to_numeric(df_bluetooth['time'], errors='coerce')
         df_bluetooth = df_bluetooth.dropna(subset=['time'])
         df_bluetooth['time'] = pd.to_datetime(df_bluetooth['time'], unit='s')
-
+        # print(f"蓝牙数据清理后数据量: {len(df_bluetooth)}")
+        
+        # 确保所有数据都有有效的时间戳和坐标
         if len(df_gps) == 0:
             raise ValueError("GPS数据清理后为空，请检查数据格式")
-
+        
         return df_gps, df_activity, df_bluetooth
     
     def visualize_location_graph(self, G: nx.Graph,save_path):
@@ -183,7 +195,7 @@ class DataProcessor:
         
         return G
     
-    def create_multi_channel_graph(self, 
+    def create_multi_channel_graph(self, G: nx.Graph, 
                                  df_gps_day: pd.DataFrame, 
                                  df_activity_day: pd.DataFrame, 
                                  df_bluetooth_day: pd.DataFrame,
@@ -197,7 +209,12 @@ class DataProcessor:
         # 为GPS数据添加聚类标签
         df_gps_day['cluster'] = clusters
         
-       
+        dynamic_graphs = {
+            'location': {},
+            'activity': {},
+            'bluetooth': {},
+            't_location': {}
+        }
         
         # 对每个有效的聚类创建子图
         unique_clusters = np.unique(clusters)
@@ -232,47 +249,46 @@ class DataProcessor:
                 (df_bluetooth_day['time'] <= end_time)
             ]
             
-            A_feature = None
-            B_feature = None
+           
+            if not gps_window.empty:
+                # 创建位置子图，只包含当前聚类的节点
+                local_Node = nx.Graph()
+                mask = clusters == cluster #是一个布尔数组，用于标识当前聚类的节点。 mask = np.array([True, False, True, False, False, False, True])
+                center = coordinates[mask].mean(axis=0) # 计算中间坐标
+                local_Node.add_node(f'L{cluster}', 
+                                  type='location',
+                                  latitude=center[0],
+                                  longitude=center[1])
+                # 这个是记录为一天的整张位置图
+                G_location.add_node(f'L{cluster}',
+                                  type='location',
+                                  latitude=center[0],
+                                  longitude=center[1])
+                main_graph.add_node(f'L{cluster}',
+                                  type='location',
+                                  latitude=center[0],
+                                  longitude=center[1])
+                
+                dynamic_graphs['location'][cluster] = local_Node
+                # self.visualize_location_graph(local_Node, os.path.join('location_', self.user_id, f'{date}_{cluster}.png'))
+                
+            
             if not activity_window.empty:
                 # 创建活动子图
                 G_activity = nx.Graph()
                 self.add_activity_subgraph(G_activity, activity_window)
-                A_feature = self.get_graphs_embedding(G_activity)
                 self.add_activity_subgraph(main_graph, activity_window)
-              
+                dynamic_graphs['activity'][cluster] = G_activity
                 # self.visualize_location_graph(G_activity, os.path.join('activity_', self.user_id, f'{date}_{cluster}.png'))
             
             if not bluetooth_window.empty:
                 # 创建蓝牙子图
                 G_bluetooth = nx.Graph()
                 self.add_bluetooth_subgraph(G_bluetooth, bluetooth_window)
-                B_feature = self.get_graphs_embedding(G_bluetooth)
                 self.add_bluetooth_subgraph(main_graph, bluetooth_window)
-                
+                dynamic_graphs['bluetooth'][cluster] = G_bluetooth
                 # self.visualize_location_graph(G_bluetooth, os.path.join('bluetooth_', self.user_id, f'{date}_{cluster}.png'))
-            if not gps_window.empty:
-                # 创建位置子图，只包含当前聚类的节点
-
-                mask = clusters == cluster #是一个布尔数组，用于标识当前聚类的节点。 mask = np.array([True, False, True, False, False, False, True])
-                center = coordinates[mask].mean(axis=0) # 计算中间坐标
-
-                # 这个是记录为一天的整张位置图
-                G_location.add_node(f'L{cluster}',
-                                  type='location',
-                                  latitude=center[0],
-                                  longitude=center[1],
-                                  A_feature=A_feature,
-                                  B_feature=B_feature)
-                main_graph.add_node(f'L{cluster}',
-                                  type='location',
-                                  latitude=center[0],
-                                  longitude=center[1],
-                                  A_feature=A_feature,
-                                  B_feature=B_feature)
-                
-
-            # 添加相邻地点聚类相邻之间的边
+             # 添加相邻聚类之间的边
             if prev_cluster is not None and prev_end_time is not None:
                 # print(f'当前时间{start_time},上一个时间{prev_end_time}')
                 if start_time > prev_end_time:
@@ -281,29 +297,11 @@ class DataProcessor:
             
             prev_cluster = cluster
             prev_end_time = end_time
-            
+            dynamic_graphs['t_location']['-1'] = G_location
             # self.visualize_location_graph(G_location, os.path.join('location_', self.user_id, f'{date}.png'))
-            # main_graph 可以替代static_graph
-
-        return G_location,main_graph
+        return dynamic_graphs
     # 将 NetworkX 图转换为 PyTorch Geometric 数据格式。
     # 创建节点特征和边索引，并转换为 PyTorch 张量。
-    def get_graphs_embedding(self, G: nx.Graph) -> np.ndarray:
-        # 初始化 NodeSketch 实例
-        sketch = NodeSketch()
-        sketch.fit(G)
-        
-        # 为每个节点生成嵌入表示并添加到节点属性中
-        for node in G.nodes():
-            embedding = sketch.get_embedding(node)
-            G.nodes[node]['feature'] = embedding
-        
-        # 计算整张图的特征表示（这里使用所有节点嵌入的平均值）
-        all_embeddings = np.array([G.nodes[node]['feature'] for node in G.nodes()])
-        graph_feature = np.mean(all_embeddings, axis=0)
-        return graph_feature
-        
-        
     def convert_to_pytorch_geometric(self, G: nx.Graph) -> Data:
         """将NetworkX图转换为PyTorch Geometric数据格式"""
         # 检查 G 是否为空
@@ -316,21 +314,20 @@ class DataProcessor:
         
         # 创建节点特征
         node_features = []
+        node_types = []
         nodes_list = list(G.nodes())
         
         for node in nodes_list:
             # 使用 Node Sketch 嵌入生成节点特征
             embedding = self.node_sketch.get_embedding(node)
-            # 检查节点是否有 feature 属性
-            if 'A_feature' and 'B_feature' in G.nodes[node] and G.nodes[node]['A_feature'] is not None and G.nodes[node]['B_feature'] is not None:
-                # 将 NodeSketch 嵌入与 feature 属性中的嵌入进行融合
-                A_feature = G.nodes[node]['A_feature']
-                B_feature = G.nodes[node]['A_feature']
-                fused_embedding = (embedding + A_feature + B_feature) / 3  # 可以更改为拼接吗，考虑到信息保留最大化
-            else:
-                fused_embedding = embedding
-            node_features.append(fused_embedding)
+            node_features.append(embedding)
             
+            if node.startswith('L'):  # 位置节点
+                node_types.append(0)
+            elif node.startswith('A'):  # 活动节点
+                node_types.append(1)
+            elif node.startswith('B'):  # 蓝牙节点
+                node_types.append(2)
         
         # 创建边索引和边权重
         edge_index = []
@@ -350,18 +347,53 @@ class DataProcessor:
         x = torch.FloatTensor(node_features)
         edge_index = torch.LongTensor(edge_index).t()
         edge_weight = torch.FloatTensor(edge_weight)
-   
+        node_types = torch.LongTensor(node_types)
         
-        return Data(x=x, edge_index=edge_index, edge_weight=edge_weight)   
-    def convert_to_pytorch_geometric_temporal(self, full_graph: nx.Graph, 
-                                            location_graph: Dict[str, Dict]) -> Tuple[Data, Dict[str, List[Data]]]:
+        return Data(x=x, edge_index=edge_index, edge_weight=edge_weight, node_type=node_types)   
+    def convert_to_pytorch_geometric_temporal(self, static_graph: nx.Graph, 
+                                            dynamic_graphs: Dict[str, Dict]) -> Tuple[Data, Dict[str, List[Data]]]:
         """将静态图和动态图转换为PyTorch Geometric时序数据格式"""
-        # convert_to_pytorch_geometric 要改动成为！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
-        full_graph = self.convert_to_pytorch_geometric(full_graph)
-        location_graph = self.convert_to_pytorch_geometric(location_graph)
+        # 转换静态图
+        static_data = self.convert_to_pytorch_geometric(static_graph)
         
+        #        dynamic_graphs = {
+        #     'location': {
+        #         0: nx.Graph([('L0', {'type': 'location', 'latitude': 34.0522, 'longitude': -118.2437})]),
+        #         1: nx.Graph([('L1', {'type': 'location', 'latitude': 36.1699, 'longitude': -115.1398})])
+        #     },
+        #     'activity': {
+        #         0: nx.Graph([('A0', {'type': 'activity'})]),
+        #         1: nx.Graph([('A1', {'type': 'activity'})])
+        #     },
+        #     'bluetooth': {
+        #         0: nx.Graph([('B0', {'type': 'bluetooth'})]),
+        #         1: nx.Graph([('B1', {'type': 'bluetooth'})])
+        #     }
+        # }
+        # 转换动态图
+        dynamic_data = {
+            'location': {},
+            'activity': {},
+            'bluetooth': {}
+        }
         
-        return location_graph,full_graph
+        # 获取所有时间戳并排序
+        clusterNums = sorted(list(dynamic_graphs['location'].keys()))
+        # print('这个timestamps 真的有吗',list(dynamic_graphs['activity']),list(dynamic_graphs['location']))
+
+        # sys.exit()
+        for clusterNum in clusterNums:
+            # 处理每个通道的动态图
+            for channel in ['location', 'activity', 'bluetooth']:
+                if clusterNum in dynamic_graphs[channel]:
+                    graph_data = self.convert_to_pytorch_geometric(
+                        dynamic_graphs[channel][clusterNum]
+                    )
+                    dynamic_data[channel][clusterNum]=graph_data
+                    #graph_data变成这种 Data(x=x, edge_index=edge_index, node_type=node_types) 
+                    # PyTorch Geometric 的 Data 对象 
+                    # dynamic data [channel][cluster] = Data(x=x, edge_index=edge_index, node_type=node_types)
+        return static_data, dynamic_data
     
     #调用主函数，主要用于构建每一天的图
     def build_daily_graphs(self) -> Dict[str, Tuple[nx.Graph, Dict[str, Dict[str, nx.Graph]]]]:
@@ -393,14 +425,39 @@ class DataProcessor:
                 # print(f"警告: {date} 没有GPS数据，跳过")
                 continue
             
-            
+            # 创建静态图（基础结构）
+            static_graph = self.create_location_graph(df_gps_day)
+            # self.visualize_location_graph(static_graph)
+            static_graph = self.add_activity_subgraph(static_graph, df_activity_day)
+            # self.visualize_location_graph(static_graph,'static_graph.png')
+            static_graph = self.add_bluetooth_subgraph(static_graph, df_bluetooth_day)
+            #static_graph 是把一天全部节点放在一张图
+
             # 创建动态图（按GPS聚类划分）
-            location_graph,static_graph = self.create_multi_channel_graph(
-                df_gps_day, df_activity_day, df_bluetooth_day,date
+            dynamic_graphs = self.create_multi_channel_graph(
+                static_graph, df_gps_day, df_activity_day, df_bluetooth_day,date
             )
             
             # 保存图
-            daily_graphs[date_str] = (static_graph, location_graph)
+            daily_graphs[date_str] = (static_graph, dynamic_graphs)
+            
+            # 保存为边列表文件
+            output_dir = os.path.join('graph', self.user_id)
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # 保存静态图
+            nx.write_edgelist(static_graph, 
+                             os.path.join(output_dir, f'static_graph_{date_str}.edgelist'))
+            
+            # 保存动态图
+            for channel, cluster_graphs in dynamic_graphs.items():
+                channel_dir = os.path.join(output_dir, channel)
+                os.makedirs(channel_dir, exist_ok=True)
+                for cluster, graph in cluster_graphs.items():
+                    nx.write_edgelist(graph, 
+                                    os.path.join(channel_dir, f'graph_{date_str}_cluster_{cluster}.edgelist'))
+            
+            # print(f"完成 {date} 的图构建")
         
         print(f"总共构建了 {len(daily_graphs)} 天的图")
         return daily_graphs
