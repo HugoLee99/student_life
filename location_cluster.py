@@ -30,7 +30,8 @@ class LocationCluster:
             }, f)
     def haversine_distance(self, coord1: np.ndarray, coord2: np.ndarray) -> float:
         """计算两个经纬度坐标之间的哈弗赛因距离"""
-        R = 6371  # 地球半径，单位为公里
+        R = 6371  # 地球半径，单位为km
+
         lat1, lon1 = np.radians(coord1)
         lat2, lon2 = np.radians(coord2)
         
@@ -73,7 +74,8 @@ class LocationCluster:
             
             # 查找是否匹配已知位置
             matching_id = self.find_matching_location(center)
-            
+            #！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
+            # 
             if matching_id == -1:
                 # 如果是新位置，分配新的ID
                 matching_id = self.next_cluster_id

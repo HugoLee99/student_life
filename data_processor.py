@@ -191,7 +191,8 @@ class DataProcessor:
         """创建多通道动态图，按GPS聚类划分"""
         # 使用DBSCAN聚类GPS坐标
         coordinates = df_gps_day[['latitude', 'longitude']].values
-        dbscan = DBSCAN(eps=0.001, min_samples=3)
+        # dista
+        dbscan = DBSCAN(eps=0.05, min_samples=3)# eps 是以千米为单位 eps 小于这个值就算一个cluster 精度20-50 米
         clusters = dbscan.fit_predict(coordinates)
         
         # 为GPS数据添加聚类标签
@@ -201,8 +202,8 @@ class DataProcessor:
         
         # 对每个有效的聚类创建子图
         unique_clusters = np.unique(clusters)
-        G_location = nx.Graph()
-        main_graph = nx.Graph()
+        G_location = nx.Graph() # 子图一个Afeature Bfeature loc
+        main_graph = nx.Graph() # 一张图
         prev_cluster = None
         prev_end_time = None
         for cluster in unique_clusters:
@@ -240,7 +241,7 @@ class DataProcessor:
                 self.add_activity_subgraph(G_activity, activity_window)
                 A_feature = self.get_graphs_embedding(G_activity)
                 self.add_activity_subgraph(main_graph, activity_window)
-              
+            
                 # self.visualize_location_graph(G_activity, os.path.join('activity_', self.user_id, f'{date}_{cluster}.png'))
             
             if not bluetooth_window.empty:
@@ -264,6 +265,7 @@ class DataProcessor:
                                   longitude=center[1],
                                   A_feature=A_feature,
                                   B_feature=B_feature)
+                
                 main_graph.add_node(f'L{cluster}',
                                   type='location',
                                   latitude=center[0],
@@ -365,7 +367,7 @@ class DataProcessor:
     
     #调用主函数，主要用于构建每一天的图
     def build_daily_graphs(self) -> Dict[str, Tuple[nx.Graph, Dict[str, Dict[str, nx.Graph]]]]:
-        """构建每日的静态图和动态图"""
+        """构建每日的全局图和地点特征融合图"""
         print("开始构建每日图...")
         
         # 尝试加载已存在的图

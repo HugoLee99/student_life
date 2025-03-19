@@ -41,7 +41,7 @@ import os
 # file_path_GCN = 'output/f1_scores_GCN.csv'
 file_path_GCN_LSTM = 'output/f1_scores_GCN_LSTM.csv'
 file_path_GAT = 'output/f1_scores_GAT.csv'
-filename = 'GCN'
+filename = 'GCN_new'
 file_path_GCN = 'output/f1_scores_'+filename+'.csv'
 rng = np.random.default_rng(42)
 x1 = np.arange(0, 40, 1)

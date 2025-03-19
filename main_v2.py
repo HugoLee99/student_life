@@ -1128,11 +1128,11 @@ def main():
     input_dim = 64
     hidden_dim = 128
     output_dim = 2
-    num_epochs = 30  # 论文里要求是150轮
+    num_epochs = 50  # 论文里要求是150轮
     batch_size = 256  # 256个batch size
 
 
-    learning_rate = 1e-5 # 1e-5
+    learning_rate = 1e-6 # 1e-5
     lambda_cr = 1e-5 # 1e-5 一致性加大看看会如何
     alpha = 0.5
     
